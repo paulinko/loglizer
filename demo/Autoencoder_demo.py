@@ -27,7 +27,7 @@ if __name__ == '__main__':
                         bottleneck_size=int(x_test.shape[1] // 1.),
                         encoder_size=x_test.shape[1] * 5,
                         )
-    threshold = model.fit(x_train, epochs=20)
+    threshold = model.fit(x_train, epochs=50)
 
     print('Train validation:')
     # precision, recall, f1 = model.evaluate(x_train, y_train)

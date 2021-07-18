@@ -30,16 +30,25 @@ class Iterator(Dataset):
 
 class Vectorizer(object):
 
-    def fit_transform(self, x_train, window_y_train, y_train):
-        self.label_mapping = {eid: idx for idx, eid in enumerate(window_y_train.unique(), 2)}
+    def fit_transform(self, x_train, window_y_train, y_train, normalize = False):
+        if len(window_y_train) > 0:
+            self.label_mapping = {eid: idx for idx, eid in enumerate(window_y_train.unique(), 2)}
+        else:
+            unique_events = np.unique(np.concatenate(x_train['EventSequence']))
+            self.label_mapping =  {eid: idx for idx, eid in enumerate(unique_events, 2)}
         self.label_mapping["#OOV"] = 0
         self.label_mapping["#Pad"] = 1
         self.num_labels = len(self.label_mapping)
+        self.normalize = normalize
         return self.transform(x_train, window_y_train, y_train)
 
     def transform(self, x, window_y, y):
-        x["EventSequence"] = x["EventSequence"].map(lambda x: [self.label_mapping.get(item, 0) for item in x])
-        window_y = window_y.map(lambda x: self.label_mapping.get(x, 0))
+        if self.normalize:
+            x["EventSequence"] = x["EventSequence"].map(lambda x: [self.label_mapping.get(item, 0) / self.num_labels for item in x])
+            window_y = window_y.map(lambda x: self.label_mapping.get(x, 0)/ self.num_labels)
+        else:
+            x["EventSequence"] = x["EventSequence"].map(lambda x: [self.label_mapping.get(item, 0)for item in x])
+            window_y = window_y.map(lambda x: self.label_mapping.get(x, 0))
         y = y
         data_dict = {"SessionId": x["SessionId"].values, "window_y": window_y.values, "y": y.values, "x": np.array(x["EventSequence"].tolist())}
         return data_dict

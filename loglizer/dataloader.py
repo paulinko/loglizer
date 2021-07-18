@@ -108,7 +108,7 @@ def load_HDFS(log_file, label_file=None, window='session', train_ratio=0.5, spli
             data_df.to_csv('data_instances.csv', index=False)
 
         if window_size > 0:
-            x_train, window_y_train, y_train = slice_hdfs(x_train, y_train, window_size)
+            x_train, window_y_train, y_train = slice_hdfs(x_train, y_train, window_size, zero_positive)
             x_test, window_y_test, y_test = slice_hdfs(x_test, y_test, window_size)
             log = "{} {} windows ({}/{} anomaly), {}/{} normal"
             print(log.format("Train:", x_train.shape[0], y_train.sum(), y_train.shape[0], (1-y_train).sum(), y_train.shape[0]))
@@ -145,10 +145,12 @@ def load_HDFS(log_file, label_file=None, window='session', train_ratio=0.5, spli
 
     return (x_train, y_train), (x_test, y_test)
 
-def slice_hdfs(x, y, window_size):
+def slice_hdfs(x, y, window_size, zero_positive=False):
     results_data = []
     print("Slicing {} sessions, with window {}".format(x.shape[0], window_size))
     for idx, sequence in enumerate(x):
+        if y[idx] == 1 and zero_positive:
+            continue
         seqlen = len(sequence)
         i = 0
         while (i + window_size) < seqlen:
