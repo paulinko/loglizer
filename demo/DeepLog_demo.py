@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import sys
+
+import numpy as np
+
 sys.path.append('../')
 from loglizer import dataloader
 from loglizer.models import DeepLog
@@ -26,6 +29,7 @@ if __name__ == '__main__':
     
     feature_extractor = Vectorizer()
     train_dataset = feature_extractor.fit_transform(x_train, window_y_train, y_train)
+    x_train = np.delete(x_train, x_train.argmax())
     test_dataset = feature_extractor.transform(x_test, window_y_test, y_test)
 
     train_loader = Iterator(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers).iter
