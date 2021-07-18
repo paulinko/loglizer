@@ -62,7 +62,7 @@ class Autoencoder(nn.Module):
         bottleneck = self.encoder.forward(inputs)
         return self.decoder.forward(bottleneck)
 
-    def calculate_threshold(self, train_loader):
+    def calculate_threshold(self, train_loader, file_name):
         X = np.array([])
         preds = list()
         for data in train_loader:
@@ -85,9 +85,14 @@ class Autoencoder(nn.Module):
 
 
         figF1, axF1 = plt.subplots()
-        axF1.set_title('Training mses')
+        axF1.set_title('Training MSEs')
         axF1.scatter(error_df.index, error_df.values)
-        plt.show()
+        if file_name:
+            plt.savefig(file_name + '.png')
+            with open(file_name + '.txt', 'w') as result:
+                result.write(error_df.describe().to_string())
+        else:
+            plt.show()
 
         self.threshold = threshold
 
@@ -95,7 +100,7 @@ class Autoencoder(nn.Module):
 
 
 
-    def fit(self, train_loader, epochs=10):
+    def fit(self, train_loader, epochs=10, file_name=None):
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.decay, amsgrad=True)
         progressbar = tqdm.tqdm(range(epochs), total=epochs)
@@ -119,7 +124,7 @@ class Autoencoder(nn.Module):
             print(txt)
 
         torch.save(self.state_dict(), './{}.pth'.format(self.model_name))
-        threshold = self.calculate_threshold(train_loader)
+        threshold = self.calculate_threshold(train_loader, file_name)
 
         return threshold
 
@@ -130,7 +135,7 @@ class Autoencoder(nn.Module):
             device = torch.device('cpu')
         return device
 
-    def evaluate(self, X, y_true, file_name=None):
+    def evaluate(self, X, y_true, file_name=None, session_ids = None):
         self.eval()
         print('====== Evaluation summary ======')
         with torch.no_grad():
@@ -142,43 +147,65 @@ class Autoencoder(nn.Module):
         y_pred = np.zeros_like(y_true)
         y_pred[mses > self.threshold] = 1
 
-        precision, recall, f1 = metrics(y_pred, y_true)
-        print(f'threshold={self.threshold}')
-        print('Precision: {:.3f}, recall: {:.3f}, F1-measure: {:.3f}\n'.format(precision, recall, f1))
 
-        colors = []
-        sizes = []
-        for pred, true in zip(y_pred, y_true):
-            if pred == 1 and true == 1:
-                colors.append(GREEN)
-                sizes.append(1)
-            elif pred == 1 and true == 0:
-                colors.append(RED)
-                sizes.append(2)
-            elif pred == 0 and pred == 0:
-                colors.append(BLUE)
-                sizes.append(0.5)
-            elif pred == 0 and pred == 1:
-                colors.append(GREY)
-                sizes.append(2)
+        # precision, recall, f1 = metrics(y_pred, y_true)
+        # print(f'threshold={self.threshold}')
+        # print('Precision: {:.3f}, recall: {:.3f}, F1-measure: {:.3f}\n'.format(precision, recall, f1))
 
         # error_df = pd.DataFrame({'reconstruction_error': mses})
-        error_df = pd.DataFrame({'reconstruction_error': mses, 'label': y_true, 'pred': y_pred})
+        error_df = pd.DataFrame({'reconstruction_error': [mse.item() for mse in mses], 'label': y_true, 'pred': y_pred})
+        if session_ids is not None:
+            error_df['session_ids'] = session_ids
+            session_df = error_df.groupby('session_ids', as_index=False).max()
+            figF1, axF1 = plt.subplots()
+            axF1.set_title('Validation Session MSEs')
+            point_size = 6
+            # axF1.scatter(error_df.index, error_df.values, c=colors, s=sizes)
+            TN = session_df[session_df['label'] == 0][session_df['pred'] == 0]['reconstruction_error']
+            axF1.scatter(TN.index, TN.values, c=['b'] * len(TN.values), s=point_size, zorder=1, label='TN')
+            TP = session_df[session_df['label'] == 1][session_df['pred'] == 1]['reconstruction_error']
+            axF1.scatter(TP.index, TP.values, c=['g'] * len(TP.values), s=point_size, zorder=2, label='TP')
+            FN = session_df[session_df['label'] != 0][session_df['pred'] == 0]['reconstruction_error']
+            axF1.scatter(FN.index, FN.values, c=[0.75] * len(FN.values), s=point_size, zorder=3, label='FN')
+            FP = session_df[session_df['label'] != 1][session_df['pred'] == 1]['reconstruction_error']
+            axF1.scatter(FP.index, FP.values, c=['r'] * len(FP.values), s=point_size, zorder=4, label='FP')
+
+            plt.plot([self.threshold] * len(error_df.index), linestyle='dashed', label='Grenzwert')
+            plt.yscale('log')
+            plt.ylabel('MSE')
+            plt.legend()
+            precision, recall, f1 = metrics(session_df['pred'], session_df['label'])
+            print('Session: Precision: {:.3f}, recall: {:.3f}, F1-measure: {:.3f}\n'.format(precision, recall, f1))
+            TP = len(TP)
+            FP = len(FP)
+            total = session_df['label'].sum()
+            TN = len(TN)
+            FN = len(FN)
+            print(f'Session: {TP=} {FP=} {FN=} {TN=}, {total=}')
+            if file_name is None:
+                plt.show()
+            else:
+                plt.savefig(file_name + '.session.png')
+                with open(file_name + '.session.txt', 'w') as session_stats:
+                    session_stats.write(f'{precision=}, {recall=}, {f1=}')
+
         figF1, axF1 = plt.subplots()
-        axF1.set_title('Validation mses')
+        axF1.set_title('Validation MSEs')
         point_size = 6
         # axF1.scatter(error_df.index, error_df.values, c=colors, s=sizes)
         TN = error_df[error_df['label'] == 0][error_df['pred'] == 0]['reconstruction_error']
-        axF1.scatter(TN.index, TN.values, c=['b']*len(TN.values), s=point_size, zorder=1)
+        axF1.scatter(TN.index, TN.values, c=['b']*len(TN.values), s=point_size, zorder=1, label='TN')
         TP = error_df[error_df['label'] == 1][error_df['pred'] == 1]['reconstruction_error']
-        axF1.scatter(TP.index, TP.values, c=['g']*len(TP.values), s=point_size, zorder=2)
+        axF1.scatter(TP.index, TP.values, c=['g']*len(TP.values), s=point_size, zorder=2, label='TP')
         FN = error_df[error_df['label'] != 0][error_df['pred'] == 0]['reconstruction_error']
-        axF1.scatter(FN.index, FN.values, c=[0.75]*len(FN.values), s=point_size, zorder=3)
+        axF1.scatter(FN.index, FN.values, c=[0.75]*len(FN.values), s=point_size, zorder=3, label='FN')
         FP = error_df[error_df['label'] != 1][error_df['pred'] == 1]['reconstruction_error']
-        axF1.scatter(FP.index, FP.values, c=['r']*len(FP.values), s=point_size, zorder=4)
+        axF1.scatter(FP.index, FP.values, c=['r']*len(FP.values), s=point_size, zorder=4, label='FP')
 
-        plt.plot([self.threshold] * len(error_df.index), linestyle='dashed')
+        plt.plot([self.threshold] * len(error_df.index), linestyle='dashed', label='Grenzwert')
+        plt.legend()
         plt.yscale('log')
+        plt.ylabel('MSE')
 
         if file_name is None:
             plt.show()
