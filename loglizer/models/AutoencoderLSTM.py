@@ -26,15 +26,29 @@ GREEN = 'g'
 RED = 'r'
 BLUE = 'b'
 GREY = 0.75
+
+
 class AutoencoderLSTM(nn.Module):
 
-    def __init__(self, input_size, bottleneck_size, encoder_size, learning_rate=1e-4, decay=5e-5, device="cpu", percentile=0.97, model_name='model_autoencoder'):
+    def __init__(self, batch_size,
+                 bottleneck_size,
+                 encoder_size,
+                 learning_rate=1e-4,
+                 decay=5e-5,
+                 device="cpu",
+                 percentile=0.97,
+                 num_directions=2,
+                 model_name='model_autoencoder'):
         super(AutoencoderLSTM, self).__init__()
-        self.encoder = nn.LSTM(input_size=input_size, hidden_size=encoder_size)
-        self.bottleneck = nn.Linear(encoder_size, bottleneck_size)
+        input_size = 1
+        self.num_directions = num_directions
+        self.encoder = nn.LSTM(input_size=input_size, hidden_size=encoder_size, batch_first=True,
+                               bidirectional=(self.num_directions == 2)).double()
+        self.bottleneck = nn.Linear(self.num_directions * encoder_size, bottleneck_size).double()
         # self.bottleneck_to_decoder = nn.Linear(bottleneck_size, encoder_size)
-        self.decoder = nn.LSTM(input_size=bottleneck_size, hidden_size=encoder_size)
-        self.out = nn.Linear(encoder_size, input_size)
+        self.decoder = nn.LSTM(input_size=bottleneck_size, hidden_size=encoder_size, batch_first=True,
+                               bidirectional=(self.num_directions == 2)).double()
+        self.out = nn.Linear(self.num_directions * encoder_size, input_size).double()
         self.input_size = input_size
         self.device = self.set_device(device)
         self.decay = decay
@@ -42,14 +56,25 @@ class AutoencoderLSTM(nn.Module):
         self.threshold = 0
         self.percentile = percentile
         self.model_name = model_name
-
+        self.seq_size = batch_size
+        self.batch_size = 1
+        self.encoder_size = encoder_size
+        self.bottleneck_size = bottleneck_size
 
     def forward(self, inputs):
         # inputs = torch.from_numpy(X).double().to(self.device)
-        outs, _ = self.encoder.forward(inputs)
-        outs = self.bottleneck.forward(outs)
-        outs, _ = self.decoder.forward(outs)
+        inputs = inputs.reshape(-1, self.seq_size, 1)
+        self.batch_size = inputs.shape[0]
+        outs, _ = self.encoder.forward(inputs, self.init_hidden())
+        b_outs = self.bottleneck.forward(outs)
+        b_outs = b_outs.reshape(-1, self.seq_size, self.bottleneck_size)
+        outs, _ = self.decoder.forward(b_outs, self.init_hidden())
         return self.out.forward(outs)
+
+    def init_hidden(self):
+        h0 = torch.zeros(self.num_directions, self.batch_size, self.encoder_size).to(self.device).double()
+        c0 = torch.zeros(self.num_directions, self.batch_size, self.encoder_size).to(self.device).double()
+        return (h0, c0)
 
     def calculate_threshold(self, train_loader, file_name):
         X = np.array([])
@@ -57,12 +82,12 @@ class AutoencoderLSTM(nn.Module):
         for data in train_loader:
             x_tensor = torch.from_numpy(data).double().to(self.device)
             with torch.no_grad():
-                pred = self(x_tensor)
-            preds.append(np.array(pred))
+                pred = self(x_tensor.reshape(self.batch_size,self.seq_size,1))
+            preds.append(np.array(pred).reshape(self.seq_size))
         preds = np.array(preds)
 
         # X = np.reshape(X,(-1, self.input_size))
-        mse = np.mean(np.power(preds-train_loader, 2), axis=1)
+        mse = np.mean(np.power(preds - train_loader, 2), axis=1)
         # mse = np.delete(mse, mse.argmax())
         # mse = np.delete(mse, mse.argmax())
         error_df = pd.DataFrame({'reconstruction_error': mse})
@@ -72,12 +97,11 @@ class AutoencoderLSTM(nn.Module):
         print(f'{threshold=}')
         print(error_df.describe())
 
-
         figF1, axF1 = plt.subplots()
         axF1.set_title('Training MSEs')
         axF1.scatter(error_df.index, error_df.values)
         if file_name:
-            plt.savefig(file_name + '.png')
+            plt.savefig(file_name + '-train.png')
             with open(file_name + '.txt', 'w') as result:
                 result.write(error_df.describe().to_string())
         else:
@@ -86,8 +110,6 @@ class AutoencoderLSTM(nn.Module):
         self.threshold = threshold
 
         return threshold
-
-
 
     def fit(self, train_loader, epochs=10, file_name=None):
         criterion = nn.MSELoss()
@@ -99,7 +121,7 @@ class AutoencoderLSTM(nn.Module):
             for X in train_loader:
                 x_tensor = torch.from_numpy(X).double().to(self.device)
                 predicted = self.forward(x_tensor)
-                loss = criterion(predicted, x_tensor)
+                loss = criterion(predicted.reshape(self.seq_size), x_tensor)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -124,18 +146,17 @@ class AutoencoderLSTM(nn.Module):
             device = torch.device('cpu')
         return device
 
-    def evaluate(self, X, y_true, file_name=None, session_ids = None):
+    def evaluate(self, X, y_true, file_name=None, session_ids=None):
         self.eval()
         print('====== Evaluation summary ======')
         with torch.no_grad():
             x_tensor = torch.from_numpy(X).double().to(self.device)
             preds = self.forward(x_tensor)
-        mses = np.power(preds - X, 2).mean(axis=1)
+        mses = np.power(preds.reshape(-1,self.seq_size) - X, 2).mean(axis=1)
         # mses = np.delete(mses, mses.argmax())
         # mses = np.delete(mses, mses.argmax())
         y_pred = np.zeros_like(y_true)
         y_pred[mses > self.threshold] = 1
-
 
         # precision, recall, f1 = metrics(y_pred, y_true)
         # print(f'threshold={self.threshold}')
@@ -183,13 +204,13 @@ class AutoencoderLSTM(nn.Module):
         point_size = 6
         # axF1.scatter(error_df.index, error_df.values, c=colors, s=sizes)
         TN = error_df[error_df['label'] == 0][error_df['pred'] == 0]['reconstruction_error']
-        axF1.scatter(TN.index, TN.values, c=['b']*len(TN.values), s=point_size, zorder=1, label='TN')
+        axF1.scatter(TN.index, TN.values, c=['b'] * len(TN.values), s=point_size, zorder=1, label='TN')
         TP = error_df[error_df['label'] == 1][error_df['pred'] == 1]['reconstruction_error']
-        axF1.scatter(TP.index, TP.values, c=['g']*len(TP.values), s=point_size, zorder=2, label='TP')
+        axF1.scatter(TP.index, TP.values, c=['g'] * len(TP.values), s=point_size, zorder=2, label='TP')
         FN = error_df[error_df['label'] != 0][error_df['pred'] == 0]['reconstruction_error']
-        axF1.scatter(FN.index, FN.values, c=[0.75]*len(FN.values), s=point_size, zorder=3, label='FN')
+        axF1.scatter(FN.index, FN.values, c=[0.75] * len(FN.values), s=point_size, zorder=3, label='FN')
         FP = error_df[error_df['label'] != 1][error_df['pred'] == 1]['reconstruction_error']
-        axF1.scatter(FP.index, FP.values, c=['r']*len(FP.values), s=point_size, zorder=4, label='FP')
+        axF1.scatter(FP.index, FP.values, c=['r'] * len(FP.values), s=point_size, zorder=4, label='FP')
 
         plt.plot([self.threshold] * len(error_df.index), linestyle='dashed', label='Grenzwert')
         plt.legend()
@@ -211,5 +232,3 @@ class AutoencoderLSTM(nn.Module):
         print(f'{TP=} {FP=} {FN=} {TN=}, {total=}')
 
         return precision, recall, f1
-
-

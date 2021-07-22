@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
+import csv
 import sys
+from datetime import datetime
 
 import pandas
 import torch
@@ -12,16 +13,20 @@ from loglizer import dataloader, preprocessing
 import pickle
 import numpy as np
 import os
+import time
 
 struct_log = '../data/HDFS/HDFS_100k.log_structured.csv'  # The structured log file
 label_file = '../data/HDFS/anomaly_label.csv'  # The anomaly label file
 
-window_size = 40
-generate = False
-MODEL_PATH = 'log_autoencoder'
-EPOCHS = 20
-PERCENTILE = 0.92
+window_size = 300
+generate = True
+MODEL_PATH = 'log_autoencoder_seq'
+EPOCHS = 1
+PERCENTILE = 0.99
+lr = 1e-3
+decay = 1e-4
 load = True and not generate
+
 #
 if __name__ == '__main__':
     if generate:
@@ -47,10 +52,8 @@ if __name__ == '__main__':
     test_dataset = feature_extractor.transform(x_test, pandas.Series([], dtype=pandas.Float64Dtype), y_test)
     x_test, y_test = test_dataset['x'], test_dataset['y']
 
-    bottleneck_size = int(x_test.shape[1] // 1.5)
-    lr = 1e-1
-    decay = 1e-7
-    encoder_sizer = x_test.shape[1] * 2
+    bottleneck_size = int(x_test.shape[1] // 2)
+    encoder_sizer = x_test.shape[1] * 1
     model_name = f'{MODEL_PATH}_ws{window_size}_epoch{EPOCHS}'
     model = Autoencoder(input_size=x_test.shape[1],
                         bottleneck_size=bottleneck_size,
@@ -66,18 +69,37 @@ if __name__ == '__main__':
         with open(model_name + '.meta', 'rb') as pickle_file:
             meta = pickle.load(pickle_file)
         model.threshold = meta['threshold']
+        train_time = 'NA'
     else:
         file_name = f'train_{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_lr{lr}'
         file_name = os.path.join('results', file_name)
+        train_start = time.time()
         threshold = model.fit(x_train, epochs=EPOCHS, file_name=file_name)
+        train_time = time.time() - train_start
         with open(model_name + '.meta', 'wb') as pickle_file:
             pickle.dump({'threshold': threshold}, pickle_file)
 
     print('Test validation:')
     file_name = f'validation{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_lr{lr}'
     file_name = os.path.join('results', file_name)
+    eval_start = time.time()
     precision, recall, f1 = model.evaluate(x_test, y_test, file_name + '.png', test_dataset['SessionId'])
+    eval_time = time.time() - eval_start
     with open(file_name + '.txt', 'w') as result_file:
         result_file.write(f'{precision=}, {recall=}, {f1=}')
     print(f'{precision=}, {recall=}, {f1=}')
     print('result_file', file_name)
+
+    log_name = os.path.join('important', 'result_log.csv')
+
+    if not os.path.isfile(log_name):
+        with open(log_name, 'w') as result_log:
+            w = csv.writer(result_log)
+            w.writerow(['time', 'architecture','percentile','lr', 'decay', 'bn','epochs', 'encoder_size', 'window_size', 'total_val', 'total_train', 'precision', 'recall', 'f1', 'result_file', 'eval_time', 'train_time'])
+    with open(log_name, 'a') as result_log:
+        w = csv.writer(result_log)
+        time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        w.writerow(
+            [time, MODEL_PATH, PERCENTILE, lr, decay, bottleneck_size, EPOCHS, encoder_sizer, window_size, len(x_test),len(x_train), precision, recall,
+             f1, file_name, eval_time, train_time])
+

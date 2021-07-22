@@ -18,8 +18,8 @@ label_file = '../data/HDFS/anomaly_label.csv'  # The anomaly label file
 
 window_size = 40
 generate = False
-MODEL_PATH = 'log_autoencoder'
-EPOCHS = 20
+MODEL_PATH = 'log_autoencoderlstm'
+EPOCHS = 4
 PERCENTILE = 0.92
 load = False and not generate
 #
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     decay = 1e-7
     encoder_sizer = x_test.shape[1] * 2
     model_name = f'{MODEL_PATH}_ws{window_size}_epoch{EPOCHS}'
-    model = AutoencoderLSTM(input_size=x_test.shape[1],
+    model = AutoencoderLSTM(batch_size=x_test.shape[1],
                         bottleneck_size=bottleneck_size,
                         encoder_size=encoder_sizer,
                         learning_rate=lr,
