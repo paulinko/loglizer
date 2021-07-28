@@ -8,3 +8,5 @@ from .IsolationForest import IsolationForest
 from .DeepLog import DeepLog
 from .Autoencoder import Autoencoder
 from .AutoencoderLSTM import AutoencoderLSTM
+from .AutoencoderCascade import AutoencoderCascade
+from .AutoencoderConvolutional import AutoencoderConv

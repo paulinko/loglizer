@@ -57,6 +57,8 @@ class AutoencoderCascade(nn.Module):
         self.percentile = percentile
         self.model_name = model_name
 
+        print(self)
+
 
     def forward(self, inputs):
         # inputs = torch.from_numpy(X).double().to(self.device)

@@ -8,25 +8,25 @@ import pandas
 import torch
 
 sys.path.append('../')
-from loglizer.models import AutoencoderCascade
+from loglizer.models import AutoencoderConv
 from loglizer import dataloader, preprocessing
 import pickle
 import numpy as np
 import os
 import time
 
-struct_log = '../data/HDFS/HDFS.npz'  # The structured log file
-# struct_log = '../data/HDFS/HDFS_100k.log_structured.csv' # The structured
+# struct_log = '../data/HDFS/HDFS.npz'  # The structured log file
+struct_log = '../data/HDFS/HDFS_100k.log_structured.csv' # The structured
 label_file = '../data/HDFS/anomaly_label.csv'  # The anomaly label file
 typ = ''
 if struct_log.endswith('.npz'):
     typ = '_npz'
 
 window_size = 300
-generate = True
-MODEL_PATH = 'log_autoencoder_seq_casc'
-EPOCHS = 10
-PERCENTILE = 0.99
+generate = False
+MODEL_PATH = 'log_autoencoder_conv'
+EPOCHS = 30
+PERCENTILE = 0.98
 lr = 1e-3
 decay = 1e-5
 load = False and not generate
@@ -37,7 +37,7 @@ if __name__ == '__main__':
         (x_train, _, y_train), (x_test, _, y_test) = dataloader.load_HDFS(struct_log,
                                                                           label_file=label_file,
                                                                           window_size=window_size,
-                                                                          train_ratio=0.01,
+                                                                          train_ratio=0.5,
                                                                           split_type='uniform',
                                                                           zero_positive=True)
         with open(f'WIP_ws{window_size}{typ}', 'wb') as pickle_file:
@@ -57,9 +57,9 @@ if __name__ == '__main__':
     x_test, y_test = test_dataset['x'], test_dataset['y']
 
     bottleneck_size = int(x_test.shape[1] // 1.5)
-    encoder_sizer = int(x_test.shape[1])
+    encoder_sizer = int(x_test.shape[1] * 1)
     model_name = f'{MODEL_PATH}_ws{window_size}_epoch{EPOCHS}'
-    model = AutoencoderCascade(input_size=x_test.shape[1],
+    model = AutoencoderConv(input_size=x_test.shape[1],
                         bottleneck_size=bottleneck_size,
                         encoder_size=encoder_sizer,
                         learning_rate=lr,

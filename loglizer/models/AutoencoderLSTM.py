@@ -28,6 +28,48 @@ BLUE = 'b'
 GREY = 0.75
 
 
+class Encoder(nn.Module):
+
+    def __init__(self, batch_size, bottleneck_size, hidden_size, seq_len):
+        super(Encoder, self).__init__()
+        self.feature_count = 1
+        self.batch_size = batch_size
+        self.seq_len = seq_len
+        self.bottleneck_size = bottleneck_size
+        self.hidden_size = hidden_size
+        self.lstm_1 = nn.LSTM(self.feature_count, hidden_size, batch_first=True)
+        self.lstm_2 = nn.LSTM(hidden_size, bottleneck_size, batch_first=True)
+
+    def forward(self, x):
+        x = x.reshape((-1, self.seq_len, self.feature_count))
+        x, _ = self.lstm_1.forward(x)
+        x, (hidden, _) = self.lstm_2.forward(x)
+        return hidden.reshape(-1, self.bottleneck_size, self.feature_count)
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, batch_size, bottleneck_size, hidden_size, seq_len):
+        super(Decoder, self).__init__()
+        self.feature_count = 1
+        self.batch_size = batch_size
+        self.seq_len = seq_len
+        self.bottleneck_size = bottleneck_size
+        self.hidden_size = hidden_size
+        self.lstm_1 = nn.LSTM(self.bottleneck_size, bottleneck_size, batch_first=True)
+        self.lstm_2 = nn.LSTM(bottleneck_size, hidden_size, batch_first=True)
+        self.out = nn.Linear(self.hidden_size, self.feature_count)
+
+    def forward(self, x):
+        x = x.repeat(self.batch_size,2,1)  # (4, 128)
+
+        # x = x.reshape(-1, self.feature_count, self.bottleneck_size)  # 1,4,128
+        x, _ = self.lstm_1.forward(x)
+        x, _ = self.lstm_2.forward(x)
+        # x = x.reshape((self.seq_len, self.hidden_size))  # (4,256)
+        return self.out(x)
+
+
 class AutoencoderLSTM(nn.Module):
 
     def __init__(self, batch_size,
@@ -42,13 +84,6 @@ class AutoencoderLSTM(nn.Module):
         super(AutoencoderLSTM, self).__init__()
         input_size = 1
         self.num_directions = num_directions
-        self.encoder = nn.LSTM(input_size=input_size, hidden_size=encoder_size, batch_first=True,
-                               bidirectional=(self.num_directions == 2)).double()
-        self.bottleneck = nn.Linear(self.num_directions * encoder_size, bottleneck_size).double()
-        # self.bottleneck_to_decoder = nn.Linear(bottleneck_size, encoder_size)
-        self.decoder = nn.LSTM(input_size=bottleneck_size, hidden_size=encoder_size, batch_first=True,
-                               bidirectional=(self.num_directions == 2)).double()
-        self.out = nn.Linear(self.num_directions * encoder_size, input_size).double()
         self.input_size = input_size
         self.device = self.set_device(device)
         self.decay = decay
@@ -61,28 +96,26 @@ class AutoencoderLSTM(nn.Module):
         self.encoder_size = encoder_size
         self.bottleneck_size = bottleneck_size
 
+        self.encoder = Encoder(self.batch_size, bottleneck_size, encoder_size, self.seq_size).to(device)
+        self.decoder = Decoder(self.batch_size, bottleneck_size, encoder_size, self.seq_size).to(device)
+
     def forward(self, inputs):
-        # inputs = torch.from_numpy(X).double().to(self.device)
-        inputs = inputs.reshape(-1, self.seq_size, 1)
-        self.batch_size = inputs.shape[0]
-        outs, _ = self.encoder.forward(inputs, self.init_hidden())
-        b_outs = self.bottleneck.forward(outs)
-        b_outs = b_outs.reshape(-1, self.seq_size, self.bottleneck_size)
-        outs, _ = self.decoder.forward(b_outs, self.init_hidden())
-        return self.out.forward(outs)
+        x = self.encoder(inputs)
+        x = self.decoder(x)
+        return x
 
     def init_hidden(self):
-        h0 = torch.zeros(self.num_directions, self.batch_size, self.encoder_size).to(self.device).double()
-        c0 = torch.zeros(self.num_directions, self.batch_size, self.encoder_size).to(self.device).double()
+        h0 = torch.zeros(self.num_directions, self.batch_size, self.encoder_size).to(self.device)
+        c0 = torch.zeros(self.num_directions, self.batch_size, self.encoder_size).to(self.device)
         return (h0, c0)
 
     def calculate_threshold(self, train_loader, file_name=None):
         X = np.array([])
         preds = list()
         for data in train_loader:
-            x_tensor = torch.from_numpy(data).double().to(self.device)
+            x_tensor = torch.from_numpy(data).float().to(self.device)
             with torch.no_grad():
-                pred = self(x_tensor.reshape(self.batch_size,self.seq_size,1))
+                pred = self(x_tensor.reshape(self.batch_size, self.seq_size, 1))
             preds.append(np.array(pred).reshape(self.seq_size))
         preds = np.array(preds)
 
@@ -119,7 +152,7 @@ class AutoencoderLSTM(nn.Module):
             epoch_loss = 0
             batch_cnt = 0
             for X in train_loader:
-                x_tensor = torch.from_numpy(X).double().to(self.device)
+                x_tensor = torch.from_numpy(X).float().to(self.device)
                 predicted = self.forward(x_tensor)
                 loss = criterion(predicted.reshape(self.seq_size), x_tensor)
                 optimizer.zero_grad()
@@ -150,9 +183,9 @@ class AutoencoderLSTM(nn.Module):
         self.eval()
         print('====== Evaluation summary ======')
         with torch.no_grad():
-            x_tensor = torch.from_numpy(X).double().to(self.device)
+            x_tensor = torch.from_numpy(X).float().to(self.device)
             preds = self.forward(x_tensor)
-        mses = np.power(preds.reshape(-1,self.seq_size) - X, 2).mean(axis=1)
+        mses = np.power(preds.reshape(-1, self.seq_size) - X, 2).mean(axis=1)
         # mses = np.delete(mses, mses.argmax())
         # mses = np.delete(mses, mses.argmax())
         y_pred = np.zeros_like(y_true)
