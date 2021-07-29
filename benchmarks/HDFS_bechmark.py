@@ -9,23 +9,26 @@ import pandas as pd
 from loglizer.models import *
 from loglizer import dataloader, preprocessing
 
-# run_models = ['AutoencoderCascade']
-run_models = ['InvariantsMiner']
+run_models = ['AutoencoderCascade']
+# run_models = ['InvariantsMiner']
 
 struct_log = '../data/HDFS/HDFS.npz' # The benchmark dataset
 
-EPOCHS = 10
-PERCENTILE = 0.97
+EPOCHS = 30
+PERCENTILE = 0.99
 decay=1e-4
 lr=1e-3
+
+frac_train = 0.01
 
 if __name__ == '__main__':
     (x_tr, y_train), (x_te, y_test) = dataloader.load_HDFS(struct_log,
                                                            window='session', 
-                                                           train_ratio=0.05,
-                                                           zero_positive=False,
+                                                           train_ratio=frac_train,
+                                                           zero_positive=True,
                                                            split_type='uniform')
     benchmark_results = []
+    ts = time.time()
     for _model in run_models:
         print('Evaluating {} on HDFS:'.format(_model))
         if _model == 'PCA':
@@ -46,23 +49,25 @@ if __name__ == '__main__':
                                 encoder_size=encoder_sizer,
                                 percentile=PERCENTILE,
                                 learning_rate=lr,
-                                decay=decay
+                                decay=decay,
+                                cmap='OrRd'
                                 )
             model.fit(x_train, epochs=EPOCHS)
         elif _model == 'AutoencoderCascade':
             feature_extractor = preprocessing.FeatureExtractor()
             x_train = feature_extractor.fit_transform(x_tr, term_weighting=None,
                                               normalization='zero-mean')
-            bottleneck_size = int(x_train.shape[1] // 1)
+            bottleneck_size = int(x_train.shape[1] // 1.2)
             encoder_sizer = x_train.shape[1] * 5
             model = AutoencoderCascade(input_size=x_train.shape[1],
                                 bottleneck_size=bottleneck_size,
                                 encoder_size=encoder_sizer,
                                 percentile=PERCENTILE,
                                 learning_rate=lr,
-                                decay=decay
+                                decay=decay,
+                                cmap='coolwarm'
                                 )
-            model.fit(x_train, epochs=EPOCHS)
+            model.fit(x_train, epochs=EPOCHS, anim_dir='/home/pauline/Documents/git/loglizer/anim')
 
 
         elif _model == 'InvariantsMiner':
@@ -107,16 +112,21 @@ if __name__ == '__main__':
         
         x_test = feature_extractor.transform(x_te)
         print('Train accuracy:')
-        precision, recall, f1 = model.evaluate(x_train, y_train)
-        benchmark_results.append([_model + '-train', precision, recall, f1])
+        # precision, recall, f1 = model.evaluate(x_train, y_train)
+        # benchmark_results.append([_model + '-train', precision, recall, f1])
         print('Test accuracy:')
-        # precision, recall, f1 = model.evaluate(x_test, y_test, file_name='benchmark_eval_result',sample=0.1)
 
         evaluation_start = time.time()
-        precision, recall, f1 = model.evaluate(x_test, y_test)
+        precision, recall, f1 = model.evaluate(x_test, y_test, file_name=f'{ts}_benchmark_eval_result.png',sample=0.1)
+        # precision, recall, f1 = model.evaluate(x_test, y_test)
         evaluation_time = time.time() - evaluation_start
         print(f'{evaluation_time=}')
         benchmark_results.append([_model + '-test', precision, recall, f1])
 
+
     pd.DataFrame(benchmark_results, columns=['Model', 'Precision', 'Recall', 'F1']) \
-      .to_csv('benchmark_result.csv', index=False)
+      .to_csv(f'{ts}_benchmark_result.csv', index=False)
+
+    with open(f'{ts}_benchmark_result.csv', 'a') as result_file:
+        result_file.write(f'{lr=}, {decay=}, {PERCENTILE=}, {frac_train} {evaluation_time=}')
+        result_file.write(str(model))

@@ -111,11 +111,16 @@ class FeatureExtractor(object):
             mean_vec = X.mean(axis=0)
             self.mean_vec = mean_vec.reshape(1, num_event)
             X = X - np.tile(self.mean_vec, (num_instance, 1))
-        elif self.normalization == 'positive-mean':
+        elif self.normalization == 'positive-mean-vec':
             self.min_vec = X.min(axis=0)
             X = X - self.min_vec
             self.max_vec = X.max(axis=0)
             self.max_vec[self.max_vec == 0] = 1
+            X = X / self.max_vec
+        elif self.normalization == 'positive-mean':
+            self.min_vec = X.min()
+            X = X - self.min_vec
+            self.max_vec = X.max()
             X = X / self.max_vec
         elif self.normalization == 'sigmoid':
             X[X != 0] = expit(X[X != 0])
@@ -157,7 +162,7 @@ class FeatureExtractor(object):
             X = idf_matrix
         if self.normalization == 'zero-mean':
             X = X - np.tile(self.mean_vec, (num_instance, 1))
-        elif self.normalization == 'positive-mean':
+        elif self.normalization == 'positive-mean' or 'positive-mean-vec':
             X = X - self.min_vec
             X = X / self.max_vec
         elif self.normalization == 'sigmoid':

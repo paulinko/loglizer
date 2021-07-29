@@ -44,7 +44,8 @@ if __name__ == '__main__':
                         encoder_size=encoder_sizer,
                         percentile=PERCENTILE,
                         learning_rate=lr,
-                        decay=decay
+                        decay=decay,
+                        cmap='viridis'
                         )
     train_start = time.time()
     threshold = model.fit(x_train, epochs=EPOCHS)

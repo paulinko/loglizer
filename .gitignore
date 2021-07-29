@@ -69,3 +69,7 @@ demo/results
 demo/WIP*
 
 anim/*
+*.npz
+benchmarks/*.csv
+benchmarks/*.png
+

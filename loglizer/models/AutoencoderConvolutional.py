@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 from ..utils import metrics
 from torch import nn
 from torch.nn import Linear, ReLU, Conv1d, MaxPool1d
+from torch.utils.tensorboard import SummaryWriter
+
 import matplotlib.pyplot as plt
 
 # GREEN = [0,255,0]
@@ -30,7 +32,7 @@ GREY = 0.75
 
 class AutoencoderConv(nn.Module):
 
-    def __init__(self, input_size, bottleneck_size, encoder_size, learning_rate=1e-4, decay=5e-5, device="cpu",
+    def __init__(self, input_size, bottleneck_size, encoder_size, learning_rate=1e-4, decay=5e-5, device="cpu",dropout=0,
                  percentile=0.97, model_name='model_autoencoder'):
         super(AutoencoderConv, self).__init__()
         self.channels = 1
@@ -39,6 +41,7 @@ class AutoencoderConv(nn.Module):
         bottleneck_input_size = (bottleneck_size -self.kernel_size - 0) / self.stride
         self.encoder = nn.Sequential(
             nn.Conv1d(self.channels, encoder_size, self.kernel_size),
+            nn.Dropout(dropout),
             ReLU(True),
             nn.MaxPool1d(self.kernel_size),
             # ReLU(True),
@@ -50,12 +53,13 @@ class AutoencoderConv(nn.Module):
         self.decoder = nn.Sequential(
             nn.Conv1d(bottleneck_size, encoder_size, self.kernel_size),
             ReLU(True),
-            nn.MaxPool1d(self.kernel_size),
+            nn.MaxPool1d(self.kernel_size, stride=1),
             # ReLU(True),
             nn.Conv1d(encoder_size, 1, self.kernel_size),
             ReLU(True),
-            nn.MaxPool1d(self.kernel_size, stride=self.stride),
-            nn.Linear(62, input_size)
+            # nn.MaxPool1d(self.kernel_size, stride=self.stride),
+            nn.Dropout(dropout),
+            nn.Linear(194, input_size)
         )
         self.input_size = input_size
         self.device = self.set_device(device)
@@ -109,6 +113,7 @@ class AutoencoderConv(nn.Module):
         return threshold
 
     def fit(self, train_loader, epochs=10, file_name=None):
+        writer = SummaryWriter()
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.decay, amsgrad=True)
         progressbar = tqdm.tqdm(range(epochs), total=epochs)
@@ -127,7 +132,7 @@ class AutoencoderConv(nn.Module):
                 batch_cnt += 1
 
             epoch_loss = epoch_loss / batch_cnt
-
+            writer.add_scalar('Loss/train', np.random.random(), epoch)
             txt = 'epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, epoch_loss)
             progressbar.set_description(txt)
             print(txt)

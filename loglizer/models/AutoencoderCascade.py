@@ -5,6 +5,8 @@ Authors:
     Pauline Koch
 
 """
+import os
+
 import numpy
 import numpy as np
 import pandas as pd
@@ -13,6 +15,8 @@ import tqdm
 import matplotlib.pyplot as plt
 
 from ..utils import metrics
+from ..visualize import display_sessions
+import pickle
 from torch import nn
 from torch.nn import Linear, ReLU
 import matplotlib.pyplot as plt
@@ -28,25 +32,25 @@ BLUE = 'b'
 GREY = 0.75
 class AutoencoderCascade(nn.Module):
 
-    def __init__(self, input_size, bottleneck_size, encoder_size, learning_rate=1e-4, decay=5e-5, device="cpu", percentile=0.97, model_name='model_autoencoder'):
+    def __init__(self, input_size, bottleneck_size, encoder_size, learning_rate=1e-4, decay=5e-5, device="cpu", percentile=0.97, model_name='model_autoencoder', cmap=None):
         super(AutoencoderCascade, self).__init__()
         step = int((encoder_size - bottleneck_size) / 3)
         self.encoder = nn.Sequential(
             Linear(input_size, encoder_size).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size, encoder_size - step).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size - step, encoder_size - 2* step).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size - 2 * step, bottleneck_size).double(),
         )
         self.decoder = nn.Sequential(
             Linear(bottleneck_size, encoder_size - 2 * step).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size - 2 * step, encoder_size - step).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size - step, encoder_size).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size, input_size).double(),
         )
         self.input_size = input_size
@@ -56,24 +60,43 @@ class AutoencoderCascade(nn.Module):
         self.threshold = 0
         self.percentile = percentile
         self.model_name = model_name
+        self.cmap = cmap
 
         print(self)
 
 
-    def forward(self, inputs):
+    def forward(self, inputs, log_dict = None):
         # inputs = torch.from_numpy(X).double().to(self.device)
         bottleneck = self.encoder.forward(inputs)
-        return self.decoder.forward(bottleneck)
+        outputs =  self.decoder.forward(bottleneck)
+        if log_dict:
+            log_dict['in'].append(inputs.squeeze().tolist())
+            log_dict['bottleneck'].append(bottleneck.squeeze().tolist())
+            log_dict['out'].append(outputs.squeeze().tolist())
+        return outputs
 
-    def calculate_threshold(self, train_loader, file_name):
+    def calculate_threshold(self, train_loader, file_name, log=True):
         X = np.array([])
         preds = list()
+        log_dict = None
+        if log:
+            log_dict = {'in':[], 'out': [], 'bottleneck':[]}
         for data in train_loader:
             x_tensor = torch.from_numpy(data).double().to(self.device)
             with torch.no_grad():
-                pred = self(x_tensor)
+                pred = self(x_tensor, log_dict)
             preds.append(np.array(pred))
         preds = np.array(preds)
+
+        if log:
+            if file_name:
+                with open(file_name + '_log.pickle', 'wb') as pickle_file:
+                    pickle.dump(log_dict, pickle_file)
+            display_sessions(log_dict['in'], title='inputs', cmap=self.cmap)
+            display_sessions(log_dict['bottleneck'], title='bottleneck', cmap=self.cmap)
+            display_sessions(log_dict['out'], title='out', cmap=self.cmap)
+
+
 
         # X = np.reshape(X,(-1, self.input_size))
         mse = np.mean(np.power(preds-train_loader, 2), axis=1)
@@ -103,16 +126,23 @@ class AutoencoderCascade(nn.Module):
 
 
 
-    def fit(self, train_loader, epochs=10, file_name=None):
+    def fit(self, train_loader, epochs=10, file_name=None, anim_dir=None):
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.decay, amsgrad=True)
         progressbar = tqdm.tqdm(range(epochs), total=epochs)
+        log = anim_dir is not None
+        losses = list()
+        vmax_out = None
+        vmax_bot = None
         for epoch in progressbar:
             epoch_loss = 0
             batch_cnt = 0
+            log_dict = None
+            if log:
+                log_dict = {'in': [], 'out': [], 'bottleneck': []}
             for X in train_loader:
                 x_tensor = torch.from_numpy(X).double().to(self.device)
-                predicted = self.forward(x_tensor)
+                predicted = self.forward(x_tensor, log_dict)
                 loss = criterion(predicted, x_tensor)
                 optimizer.zero_grad()
                 loss.backward()
@@ -121,13 +151,24 @@ class AutoencoderCascade(nn.Module):
                 batch_cnt += 1
 
             epoch_loss = epoch_loss / batch_cnt
+            losses.append(epoch_loss)
+            if log:
+                h_epoch = epoch + 1
+                bot_file = os.path.join(anim_dir, 'bot', f'{h_epoch:03.0f}')
+                rv = display_sessions(log_dict['bottleneck'], title=f'Bottleneck Epoch {h_epoch}', cmap=self.cmap, file_name=bot_file, losses=losses, total_epochs=epochs, vmax=vmax_bot)
+                if vmax_bot is None:
+                    vmax_bot = rv
+                out_file = os.path.join(anim_dir,'out', f'{h_epoch:03.0f}')
+                rv = display_sessions(np.abs(np.array(log_dict['out']) - train_loader), title=f'Differenz Eingabe/Ausgabe Epoch {h_epoch}', cmap=self.cmap, file_name=out_file, losses=losses, total_epochs=epochs, vmax=vmax_out)
+                if vmax_out is None:
+                    vmax_out = rv
 
             txt = 'epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, epoch_loss)
             progressbar.set_description(txt)
             print(txt)
 
         torch.save(self.state_dict(), './{}.pth'.format(self.model_name))
-        threshold = self.calculate_threshold(train_loader, file_name)
+        threshold = self.calculate_threshold(train_loader, file_name,log=True)
 
         return threshold
 

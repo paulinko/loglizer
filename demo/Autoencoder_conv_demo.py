@@ -16,20 +16,21 @@ import os
 import time
 
 # struct_log = '../data/HDFS/HDFS.npz'  # The structured log file
-struct_log = '../data/HDFS/HDFS_100k.log_structured.csv' # The structured
+struct_log = '../data/HDFS/HDFS_100k.log_structured.csv'  # The structured
 label_file = '../data/HDFS/anomaly_label.csv'  # The anomaly label file
 typ = ''
 if struct_log.endswith('.npz'):
     typ = '_npz'
 
 window_size = 300
-generate = False
+generate = True
 MODEL_PATH = 'log_autoencoder_conv'
 EPOCHS = 30
-PERCENTILE = 0.98
+PERCENTILE = 0.99
 lr = 1e-3
 decay = 1e-5
 load = False and not generate
+dropout = 0.1
 
 #
 if __name__ == '__main__':
@@ -58,15 +59,16 @@ if __name__ == '__main__':
 
     bottleneck_size = int(x_test.shape[1] // 1.5)
     encoder_sizer = int(x_test.shape[1] * 1)
-    model_name = f'{MODEL_PATH}_ws{window_size}_epoch{EPOCHS}'
+    model_name = f'{MODEL_PATH}_ws{window_size}_epoch{EPOCHS}_dropout{dropout}'
     model = AutoencoderConv(input_size=x_test.shape[1],
-                        bottleneck_size=bottleneck_size,
-                        encoder_size=encoder_sizer,
-                        learning_rate=lr,
-                        decay=decay,
-                        percentile=PERCENTILE,
-                        model_name=model_name
-                        )
+                            bottleneck_size=bottleneck_size,
+                            encoder_size=encoder_sizer,
+                            learning_rate=lr,
+                            decay=decay,
+                            percentile=PERCENTILE,
+                            model_name=model_name,
+                            dropout=dropout
+                            )
 
     if load:
         model.load_state_dict(torch.load(f'{model_name}.pth'))
@@ -75,7 +77,7 @@ if __name__ == '__main__':
         model.threshold = meta['threshold']
         train_time = 'NA'
     else:
-        file_name = f'train_{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_lr{lr}{typ}'
+        file_name = f'train_{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_dr{dropout}_lr{lr}{typ}'
         file_name = os.path.join('results', file_name)
         train_start = time.time()
         threshold = model.fit(x_train, epochs=EPOCHS, file_name=file_name)
@@ -84,7 +86,7 @@ if __name__ == '__main__':
             pickle.dump({'threshold': threshold}, pickle_file)
 
     print('Test validation:')
-    file_name = f'validation{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_lr{lr}{typ}'
+    file_name = f'validation{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}dr{dropout}_lr{lr}{typ}'
     file_name = os.path.join('results', file_name)
     eval_start = time.time()
     precision, recall, f1 = model.evaluate(x_test, y_test, file_name + '.png', test_dataset['SessionId'], sample=0.1)
@@ -99,11 +101,13 @@ if __name__ == '__main__':
     if not os.path.isfile(log_name):
         with open(log_name, 'w') as result_log:
             w = csv.writer(result_log)
-            w.writerow(['time', 'architecture','percentile','lr', 'decay', 'bn','epochs', 'encoder_size', 'window_size', 'total_val', 'total_train', 'precision', 'recall', 'f1', 'result_file', 'eval_time', 'train_time'])
+            w.writerow(
+                ['time', 'architecture', 'percentile', 'lr', 'decay', 'bn', 'epochs', 'encoder_size', 'window_size',
+                 'total_val', 'total_train', 'precision', 'recall', 'f1', 'result_file', 'eval_time', 'train_time'])
     with open(log_name, 'a') as result_log:
         w = csv.writer(result_log)
         time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         w.writerow(
-            [time, MODEL_PATH, PERCENTILE, lr, decay, bottleneck_size, EPOCHS, encoder_sizer, window_size, len(x_test),len(x_train), precision, recall,
+            [time, MODEL_PATH, PERCENTILE, lr, decay, bottleneck_size, EPOCHS, encoder_sizer, window_size, len(x_test),
+             len(x_train), precision, recall,
              f1, file_name, eval_time, train_time])
-

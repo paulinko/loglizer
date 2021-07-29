@@ -13,9 +13,11 @@ import tqdm
 import matplotlib.pyplot as plt
 
 from ..utils import metrics
+from ..visualize import display_sessions
 from torch import nn
 from torch.nn import Linear, ReLU
 import matplotlib.pyplot as plt
+import pickle
 
 # GREEN = [0,255,0]
 # RED = [255, 0, 0]
@@ -28,7 +30,7 @@ BLUE = 'b'
 GREY = 0.75
 class Autoencoder(nn.Module):
 
-    def __init__(self, input_size, bottleneck_size, encoder_size, learning_rate=1e-4, decay=5e-5, device="cpu", percentile=0.97, model_name='model_autoencoder'):
+    def __init__(self, input_size, bottleneck_size, encoder_size, learning_rate=1e-4, decay=5e-5, device="cpu", percentile=0.97, model_name='model_autoencoder', cmap=None):
         super(Autoencoder, self).__init__()
         self.encoder = nn.Sequential(
             Linear(input_size, encoder_size).double(),
@@ -55,23 +57,42 @@ class Autoencoder(nn.Module):
         self.threshold = 0
         self.percentile = percentile
         self.model_name = model_name
+        self.cmap = cmap
         print(self)
 
 
-    def forward(self, inputs):
+    def forward(self, inputs, log_dict = None):
         # inputs = torch.from_numpy(X).double().to(self.device)
         bottleneck = self.encoder.forward(inputs)
-        return self.decoder.forward(bottleneck)
+        outputs =  self.decoder.forward(bottleneck)
+        if log_dict:
+            log_dict['in'].append(inputs.squeeze().tolist())
+            log_dict['bottleneck'].append(bottleneck.squeeze().tolist())
+            log_dict['out'].append(outputs.squeeze().tolist())
+        return outputs
 
-    def calculate_threshold(self, train_loader, file_name):
+
+    def calculate_threshold(self, train_loader, file_name, log=False):
         X = np.array([])
         preds = list()
+        log_dict = None
+        if log:
+            log_dict = {'in':[], 'out': [], 'bottleneck':[]}
         for data in train_loader:
             x_tensor = torch.from_numpy(data).double().to(self.device)
             with torch.no_grad():
-                pred = self(x_tensor)
+                pred = self(x_tensor, log_dict)
             preds.append(np.array(pred))
         preds = np.array(preds)
+
+        if log:
+            if file_name:
+                with open(file_name + '_log.pickle', 'wb') as pickle_file:
+                    pickle.dump(log_dict, pickle_file)
+            display_sessions(log_dict['in'], title='inputs', cmap=self.cmap)
+            display_sessions(log_dict['bottleneck'], title='bottleneck', cmap=self.cmap)
+            display_sessions(log_dict['out'], title='out', cmap=self.cmap)
+
 
         # X = np.reshape(X,(-1, self.input_size))
         mse = np.mean(np.power(preds-train_loader, 2), axis=1)
@@ -120,12 +141,12 @@ class Autoencoder(nn.Module):
 
             epoch_loss = epoch_loss / batch_cnt
 
-            txt = 'epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, epoch_loss)
+            txt = 'epoch [{}/{}], loss:{:.10f}'.format(epoch + 1, epochs, epoch_loss)
             progressbar.set_description(txt)
             print(txt)
 
         torch.save(self.state_dict(), './{}.pth'.format(self.model_name))
-        threshold = self.calculate_threshold(train_loader, file_name)
+        threshold = self.calculate_threshold(train_loader, file_name, log=True)
 
         return threshold
 
