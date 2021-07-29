@@ -67,3 +67,5 @@ target/
 *.meta
 demo/results
 demo/WIP*
+
+anim/*
