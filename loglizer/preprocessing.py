@@ -162,7 +162,7 @@ class FeatureExtractor(object):
             X = idf_matrix
         if self.normalization == 'zero-mean':
             X = X - np.tile(self.mean_vec, (num_instance, 1))
-        elif self.normalization == 'positive-mean' or 'positive-mean-vec':
+        elif self.normalization == 'positive-mean' or self.normalization == 'positive-mean-vec':
             X = X - self.min_vec
             X = X / self.max_vec
         elif self.normalization == 'sigmoid':

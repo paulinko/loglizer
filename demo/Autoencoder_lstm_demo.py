@@ -18,28 +18,38 @@ import os
 struct_log = '../data/HDFS/HDFS_100k.log_structured.csv'  # The structured log file
 label_file = '../data/HDFS/anomaly_label.csv'  # The anomaly label file
 
+struct_log = '../data/HDFS/HDFS.npz'  # The structured log file
+# struct_log = '../data/HDFS/HDFS_100k.log_structured.csv' # The structured
+label_file = '../data/HDFS/anomaly_label.csv'  # The anomaly label file
+typ = ''
+if struct_log.endswith('.npz'):
+    typ = '_npz'
+
+
 window_size = 10
-generate = False
+generate = True
 MODEL_PATH = 'log_autoencoderlstm'
-EPOCHS = 5
+EPOCHS = 50
 PERCENTILE = 0.99
 load = False and not generate
 load_threshold = False
-lr = 1e-1
-decay = 1e-3
+decay=1e-3
+lr=1e-2
+ratio = 0.05
+dropout = 0.2
 
 if __name__ == '__main__':
     if generate:
         (x_train, _, y_train), (x_test, _, y_test) = dataloader.load_HDFS(struct_log,
                                                                           label_file=label_file,
                                                                           window_size=window_size,
-                                                                          train_ratio=0.1,
+                                                                          train_ratio=ratio,
                                                                           split_type='uniform',
                                                                           zero_positive=True)
-        with open(f'WIP_ws{window_size}', 'wb') as pickle_file:
+        with open(f'WIP_ws{window_size}{typ}', 'wb') as pickle_file:
             pickle.dump({'train': (x_train, y_train), 'test': (x_test, y_test)}, pickle_file)
     else:
-        with open(f'WIP_ws{window_size}', 'rb') as pickle_file:
+        with open(f'WIP_ws{window_size}{typ}', 'rb') as pickle_file:
             data = pickle.load(pickle_file)
             x_train, y_train = data['train']
             x_test, y_test = data['test']
@@ -53,8 +63,8 @@ if __name__ == '__main__':
     x_test, y_test = test_dataset['x'], test_dataset['y']
 
     bottleneck_size = int(x_test.shape[1] // 2)
-    encoder_sizer = x_test.shape[1] * 1
-    model_name = f'{MODEL_PATH}_ws{window_size}_epoch{EPOCHS}'
+    encoder_sizer = x_test.shape[1]
+    model_name = f'{MODEL_PATH}_ws{window_size}_epoch{EPOCHS}{typ}_ratio{ratio}'
     model = AutoencoderLSTM(batch_size=x_test.shape[1],
                         bottleneck_size=bottleneck_size,
                         encoder_size=encoder_sizer,
@@ -62,6 +72,7 @@ if __name__ == '__main__':
                         decay=decay,
                         percentile=PERCENTILE,
                         num_directions=1,
+                        dropout=dropout,
                         model_name=model_name
                         )
     print(model)
@@ -78,7 +89,7 @@ if __name__ == '__main__':
 
         train_time = 0
     else:
-        file_name = f'train_{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_lr{lr}'
+        file_name = f'train_{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_dr{dropout}_lr{lr}{typ}_ratio{ratio}'
         file_name = os.path.join('results', file_name)
         start_train = time.time()
         threshold = model.fit(x_train, epochs=EPOCHS, file_name=file_name)
@@ -87,10 +98,10 @@ if __name__ == '__main__':
             pickle.dump({'threshold': threshold}, pickle_file)
 
     print('Test validation:')
-    file_name = f'validation{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_lr{lr}'
+    file_name = f'validation{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_dr{dropout}_lr{lr}{typ}_ratio{ratio}'
     file_name = os.path.join('results', file_name)
     start_eval = time.time()
-    precision, recall, f1 = model.evaluate(x_test, y_test, file_name + '.png', test_dataset['SessionId'])
+    precision, recall, f1 = model.evaluate(x_test, y_test, file_name + '.png', test_dataset['SessionId'], sample=0.1)
     eval_time = time.time() -start_eval
     with open(file_name + '.txt', 'w') as result_file:
         result_file.write(f'{precision=}, {recall=}, {f1=}')
@@ -108,7 +119,7 @@ if __name__ == '__main__':
         w = csv.writer(result_log)
         time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         w.writerow(
-            [time, MODEL_PATH, PERCENTILE, lr, decay, bottleneck_size, EPOCHS, encoder_sizer, 'session', len(x_test),len(x_train), precision, recall,
+            [time, MODEL_PATH, PERCENTILE, lr, decay, bottleneck_size, EPOCHS, encoder_sizer, window_size, len(x_test),len(x_train), precision, recall,
              f1, file_name, eval_time, train_time])
 
 

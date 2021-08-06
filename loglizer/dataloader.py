@@ -14,11 +14,13 @@ import re
 from sklearn.utils import shuffle
 from collections import OrderedDict
 
-def _split_data(x_data, zero_positive=False, y_data=None, train_ratio=0, split_type='uniform'):
-    # indexes = shuffle(np.arange(x_data.shape[0]))
-    # x_data = x_data[indexes]
-    # if y_data is not None:
-    #     y_data = y_data[indexes]
+def _split_data(x_data, zero_positive=False, y_data=None, train_ratio=0, split_type='uniform', randomize=False):
+    # if randomize:
+    #     print('Shuffling data')
+    #     indexes = shuffle(np.arange(x_data.shape[0]))
+    #     x_data = x_data[indexes]
+    #     if y_data is not None:
+    #         y_data = y_data[indexes]
     if split_type == 'uniform' and y_data is not None:
         pos_idx = y_data > 0
         x_pos = x_data[pos_idx]
@@ -45,13 +47,13 @@ def _split_data(x_data, zero_positive=False, y_data=None, train_ratio=0, split_t
             y_train = y_data[0:num_train]
             y_test = y_data[num_train:]
     # Random shuffle
-    indexes = shuffle(np.arange(x_train.shape[0]))
-    x_train = x_train[indexes]
-    if y_train is not None:
-        y_train = y_train[indexes]
+    # indexes = shuffle(np.arange(x_train.shape[0]))
+    # x_train = x_train[indexes]
+    # if y_train is not None:
+    #     y_train = y_train[indexes]
     return (x_train, y_train), (x_test, y_test)
 
-def load_HDFS(log_file, label_file=None, window='session', train_ratio=0.5, split_type='sequential', save_csv=False, window_size=0, zero_positive=False):
+def load_HDFS(log_file, label_file=None, window='session', train_ratio=0.5, split_type='sequential', save_csv=False, window_size=0, zero_positive=False, randomize=False):
     """ Load HDFS structured log into train and test data
 
     Arguments
@@ -78,7 +80,7 @@ def load_HDFS(log_file, label_file=None, window='session', train_ratio=0.5, spli
         data = np.load(log_file, allow_pickle=True)
         x_data = data['x_data']
         y_data = data['y_data']
-        (x_train, y_train), (x_test, y_test) = _split_data(x_data, zero_positive, y_data, train_ratio, split_type)
+        (x_train, y_train), (x_test, y_test) = _split_data(x_data, zero_positive, y_data, train_ratio, split_type, randomize)
 
         if window_size > 0:
             x_train, window_y_train, y_train = slice_hdfs(x_train, y_train, window_size, zero_positive)
@@ -114,7 +116,7 @@ def load_HDFS(log_file, label_file=None, window='session', train_ratio=0.5, spli
 
             # Split train and test data
             (x_train, y_train), (x_test, y_test) = _split_data(data_df['EventSequence'].values, zero_positive,
-                data_df['Label'].values, train_ratio, split_type)
+                data_df['Label'].values, train_ratio, split_type, randomize)
         
             print(y_train.sum(), y_test.sum())
 
@@ -136,7 +138,7 @@ def load_HDFS(log_file, label_file=None, window='session', train_ratio=0.5, spli
                 if label_file=None.'.format(split_type))
             # Split training and validation set sequentially
             x_data = data_df['EventSequence'].values
-            (x_train, _), (x_test, _) = _split_data(x_data,zero_positive, train_ratio=train_ratio, split_type=split_type)
+            (x_train, _), (x_test, _) = _split_data(x_data,zero_positive, train_ratio=train_ratio, split_type=split_type, randomize=randomize)
             print('Total: {} instances, train: {} instances, test: {} instances'.format(
                   x_data.shape[0], x_train.shape[0], x_test.shape[0]))
             return (x_train, None), (x_test, None), data_df

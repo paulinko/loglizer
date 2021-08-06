@@ -37,20 +37,20 @@ class AutoencoderCascade(nn.Module):
         step = int((encoder_size - bottleneck_size) / 3)
         self.encoder = nn.Sequential(
             Linear(input_size, encoder_size).double(),
-            ReLU(True),
+            # ReLU(True),
             Linear(encoder_size, encoder_size - step).double(),
-            ReLU(True),
+            # ReLU(True),
             Linear(encoder_size - step, encoder_size - 2* step).double(),
-            ReLU(True),
+            # ReLU(True),
             Linear(encoder_size - 2 * step, bottleneck_size).double(),
         )
         self.decoder = nn.Sequential(
             Linear(bottleneck_size, encoder_size - 2 * step).double(),
-            ReLU(True),
+            # ReLU(True),
             Linear(encoder_size - 2 * step, encoder_size - step).double(),
-            ReLU(True),
+            # ReLU(True),
             Linear(encoder_size - step, encoder_size).double(),
-            ReLU(True),
+            # ReLU(True),
             Linear(encoder_size, input_size).double(),
         )
         self.input_size = input_size
@@ -104,7 +104,6 @@ class AutoencoderCascade(nn.Module):
         # mse = np.delete(mse, mse.argmax())
         error_df = pd.DataFrame({'reconstruction_error': mse})
 
-        # Set threshold at the 99th quartile.
         threshold = error_df.quantile(self.percentile)['reconstruction_error']
         print(f'{threshold=}')
         print(error_df.describe())

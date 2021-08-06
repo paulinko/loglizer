@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 from ..utils import metrics
 from torch import nn
-from torch.nn import Linear, ReLU, Conv1d, MaxPool1d
+from torch.nn import Linear, ReLU, Conv1d, MaxPool1d, ConvTranspose1d, MaxUnpool1d
 from torch.utils.tensorboard import SummaryWriter
 
 import matplotlib.pyplot as plt
@@ -29,6 +29,9 @@ RED = 'r'
 BLUE = 'b'
 GREY = 0.75
 
+
+def calc_output_size(input_dim, stride=3, dialation=1,kernel_size=3, padding=0, output_padding=0):
+    return (input_dim - 1 )* stride - 2*padding + (kernel_size-1) + output_padding + 1
 
 class AutoencoderConv(nn.Module):
 
@@ -48,18 +51,28 @@ class AutoencoderConv(nn.Module):
             nn.Conv1d(encoder_size, bottleneck_size, self.kernel_size),
             ReLU(True),
             nn.MaxPool1d(self.kernel_size, stride=self.stride),
-            nn.Linear(95, bottleneck_size)
+            # nn.Linear(95, bottleneck_size)
         )
         self.decoder = nn.Sequential(
-            nn.Conv1d(bottleneck_size, encoder_size, self.kernel_size),
-            ReLU(True),
-            nn.MaxPool1d(self.kernel_size, stride=1),
+            # nn.Conv1d(bottleneck_size, encoder_size, self.kernel_size),
             # ReLU(True),
-            nn.Conv1d(encoder_size, 1, self.kernel_size),
-            ReLU(True),
+            # nn.MaxPool1d(self.kernel_size, stride=1),
+            # # ReLU(True),
+            # nn.Conv1d(encoder_size, 1, self.kernel_size),
+            # ReLU(True),
+            ConvTranspose1d(200, 300, 3, stride=1, bias=False),
+            ConvTranspose1d(300, 300, 5, stride=1, bias=False),
+            ConvTranspose1d(300, 1, 200, stride=1, bias=False)
+            #ConvTranspose1d(bottleneck_size, encoder_size, self.kernel_size),
+            #ReLU(True),
+            #nn.Dropout(dropout),
+            # ConvTranspose1d(encoder_size, input_size, self.kernel_size),
+            # ReLU(True),
+            #ConvTranspose1d(encoder_size, self.channels, 3, padding=2, stride=1),
+
             # nn.MaxPool1d(self.kernel_size, stride=self.stride),
-            nn.Dropout(dropout),
-            nn.Linear(194, input_size)
+            # nn.Dropout(dropout),
+            # nn.Linear(194, input_size)
         )
         self.input_size = input_size
         self.device = self.set_device(device)
