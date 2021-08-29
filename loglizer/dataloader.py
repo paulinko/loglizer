@@ -14,7 +14,7 @@ import re
 from sklearn.utils import shuffle
 from collections import OrderedDict
 
-def _split_data(x_data, zero_positive=False, y_data=None, train_ratio=0, split_type='uniform', randomize=False):
+def _split_data(x_data, zero_positive=False, y_data=None, train_ratio=0.0, split_type='uniform', randomize=False):
     # if randomize:
     #     print('Shuffling data')
     #     indexes = shuffle(np.arange(x_data.shape[0]))
@@ -84,7 +84,7 @@ def load_HDFS(log_file, label_file=None, window='session', train_ratio=0.5, spli
 
         if window_size > 0:
             x_train, window_y_train, y_train = slice_hdfs(x_train, y_train, window_size, zero_positive)
-            x_test, y_test = x_test[:50_000], y_test[:50_000]
+            # x_test, y_test = x_test[:50_000], y_test[:50_000]
             x_test, window_y_test, y_test = slice_hdfs(x_test, y_test, window_size)
             log = "{} {} windows ({}/{} anomaly), {}/{} normal"
             print(log.format("Train:", x_train.shape[0], y_train.sum(), y_train.shape[0], (1-y_train).sum(), y_train.shape[0]))

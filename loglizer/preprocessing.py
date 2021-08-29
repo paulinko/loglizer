@@ -6,15 +6,18 @@ Authors:
 
 """
 
-
 import pandas as pd
 import os
 import numpy as np
 import re
 from collections import Counter
+import torch.nn.functional as F
+
+import torch
 from scipy.special import expit
 from itertools import compress
 from torch.utils.data import DataLoader, Dataset
+
 
 class Iterator(Dataset):
     def __init__(self, data_dict, batch_size=32, shuffle=False, num_workers=1):
@@ -28,31 +31,46 @@ class Iterator(Dataset):
     def __len__(self):
         return self.data_dict["SessionId"].shape[0]
 
+
+NUM_CLASSES = 36 + 2
+
+
 class Vectorizer(object):
 
-    def fit_transform(self, x_train, window_y_train, y_train, normalize = False):
+    def fit_transform(self, x_train, window_y_train, y_train, normalize=False, use_onehot = True):
         if len(window_y_train) > 0:
             self.label_mapping = {eid: idx for idx, eid in enumerate(window_y_train.unique(), 2)}
         else:
             unique_events = np.unique(np.concatenate(x_train['EventSequence']))
-            self.label_mapping =  {eid: idx for idx, eid in enumerate(unique_events, 2)}
+            self.label_mapping = {eid: idx for idx, eid in enumerate(unique_events, 2)}
         self.label_mapping["#OOV"] = 0
         self.label_mapping["#Pad"] = 1
+        self.use_onehot = use_onehot
         self.num_labels = len(self.label_mapping)
         self.normalize = normalize
         return self.transform(x_train, window_y_train, y_train)
 
+    @staticmethod
+    def to_onehot(l):
+        return F.one_hot(torch.tensor(l), num_classes=NUM_CLASSES).cpu().detach().numpy()
+
     def transform(self, x, window_y, y):
         if self.normalize:
-            x["EventSequence"] = x["EventSequence"].map(lambda x: [self.label_mapping.get(item, 0) / self.num_labels for item in x])
-            window_y = window_y.map(lambda x: self.label_mapping.get(x, 0)/ self.num_labels)
+            x["EventSequence"] = x["EventSequence"].map(
+                lambda x: [self.label_mapping.get(item, 0) / self.num_labels for item in x])
+            window_y = window_y.map(lambda x: self.label_mapping.get(x, 0) / self.num_labels)
         else:
-            x["EventSequence"] = x["EventSequence"].map(lambda x: [self.label_mapping.get(item, 0)for item in x])
+            x["EventSequence"] = x["EventSequence"].map(lambda x: [self.label_mapping.get(item, 0) for item in x])
             window_y = window_y.map(lambda x: self.label_mapping.get(x, 0))
         y = y
-        data_dict = {"SessionId": x["SessionId"].values, "window_y": window_y.values, "y": y.values, "x": np.array(x["EventSequence"].tolist())}
+        if self.use_onehot:
+            data_dict = {"SessionId": x["SessionId"].values, "window_y": window_y.values, "y": y.values,
+                     "x": np.array(list(map(self.to_onehot, x["EventSequence"].tolist())))}
+        else:
+            data_dict = {"SessionId": x["SessionId"].values, "window_y": window_y.values, "y": y.values,
+                         "x": np.array(x["EventSequence"].tolist())}
         return data_dict
-        
+
 
 class FeatureExtractor(object):
 
@@ -100,12 +118,12 @@ class FeatureExtractor(object):
                 X = X[:, idx]
                 self.events = np.array(X_df.columns)[idx].tolist()
             X = np.hstack([X, oov_vec.reshape(X.shape[0], 1)])
-        
+
         num_instance, num_event = X.shape
         if self.term_weighting == 'tf-idf':
             df_vec = np.sum(X > 0, axis=0)
             self.idf_vec = np.log(num_instance / (df_vec + 1e-8))
-            idf_matrix = X * np.tile(self.idf_vec, (num_instance, 1)) 
+            idf_matrix = X * np.tile(self.idf_vec, (num_instance, 1))
             X = idf_matrix
         if self.normalization == 'zero-mean':
             mean_vec = X.mean(axis=0)
@@ -125,8 +143,8 @@ class FeatureExtractor(object):
         elif self.normalization == 'sigmoid':
             X[X != 0] = expit(X[X != 0])
         X_new = X
-        
-        print('Train data shape: {}-by-{}\n'.format(X_new.shape[0], X_new.shape[1])) 
+
+        print('Train data shape: {}-by-{}\n'.format(X_new.shape[0], X_new.shape[1]))
         return X_new
 
     def transform(self, X_seq):
@@ -155,10 +173,10 @@ class FeatureExtractor(object):
         if self.oov:
             oov_vec = np.sum(X_df[X_df.columns.difference(self.events)].values > 0, axis=1)
             X = np.hstack([X, oov_vec.reshape(X.shape[0], 1)])
-        
+
         num_instance, num_event = X.shape
         if self.term_weighting == 'tf-idf':
-            idf_matrix = X * np.tile(self.idf_vec, (num_instance, 1)) 
+            idf_matrix = X * np.tile(self.idf_vec, (num_instance, 1))
             X = idf_matrix
         if self.normalization == 'zero-mean':
             X = X - np.tile(self.mean_vec, (num_instance, 1))
@@ -169,6 +187,6 @@ class FeatureExtractor(object):
             X[X != 0] = expit(X[X != 0])
         X_new = X
 
-        print('Test data shape: {}-by-{}\n'.format(X_new.shape[0], X_new.shape[1])) 
+        print('Test data shape: {}-by-{}\n'.format(X_new.shape[0], X_new.shape[1]))
 
         return X_new

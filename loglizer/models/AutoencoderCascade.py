@@ -13,6 +13,7 @@ import pandas as pd
 import torch.optim
 import tqdm
 import matplotlib.pyplot as plt
+from torch.utils.data import TensorDataset, DataLoader
 
 from ..utils import metrics
 from ..visualize import display_sessions
@@ -37,20 +38,20 @@ class AutoencoderCascade(nn.Module):
         step = int((encoder_size - bottleneck_size) / 3)
         self.encoder = nn.Sequential(
             Linear(input_size, encoder_size).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size, encoder_size - step).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size - step, encoder_size - 2* step).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size - 2 * step, bottleneck_size).double(),
         )
         self.decoder = nn.Sequential(
             Linear(bottleneck_size, encoder_size - 2 * step).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size - 2 * step, encoder_size - step).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size - step, encoder_size).double(),
-            # ReLU(True),
+            ReLU(True),
             Linear(encoder_size, input_size).double(),
         )
         self.input_size = input_size
@@ -125,7 +126,7 @@ class AutoencoderCascade(nn.Module):
 
 
 
-    def fit(self, train_loader, epochs=10, file_name=None, anim_dir=None):
+    def fit(self, train_loader, epochs=10, file_name=None, anim_dir=None, batch_size=1024):
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.decay, amsgrad=True)
         progressbar = tqdm.tqdm(range(epochs), total=epochs)
@@ -133,14 +134,19 @@ class AutoencoderCascade(nn.Module):
         losses = list()
         vmax_out = None
         vmax_bot = None
+        dataset = TensorDataset(torch.tensor(train_loader, dtype=torch.double))
+        if not batch_size:
+            batch_size = dataset.__len__()
+        dataloader = DataLoader(dataset, batch_size=batch_size, pin_memory=True)
         for epoch in progressbar:
             epoch_loss = 0
             batch_cnt = 0
             log_dict = None
             if log:
                 log_dict = {'in': [], 'out': [], 'bottleneck': []}
-            for X in train_loader:
-                x_tensor = torch.from_numpy(X).double().to(self.device)
+            for step, (X) in enumerate(dataloader):
+                # x_tensor = torch.from_numpy(X).double().to(self.device)
+                x_tensor = X[0]
                 predicted = self.forward(x_tensor, log_dict)
                 loss = criterion(predicted, x_tensor)
                 optimizer.zero_grad()
@@ -204,16 +210,16 @@ class AutoencoderCascade(nn.Module):
             axF1.set_title('Validation Session MSEs')
             point_size = 6
             # axF1.scatter(error_df.index, error_df.values, c=colors, s=sizes)
-            TN = session_df[session_df['label'] == 0][session_df['pred'] == 0]['reconstruction_error']
+            TN = session_df[session_df['label'] == 0][session_df['pred'] == 0].sample(frac=sample)['reconstruction_error']
             axF1.scatter(TN.index, TN.values, c=['b'] * len(TN.values), s=point_size, zorder=1, label='TN')
-            TP = session_df[session_df['label'] == 1][session_df['pred'] == 1]['reconstruction_error']
+            TP = session_df[session_df['label'] == 1][session_df['pred'] == 1].sample(frac=sample)['reconstruction_error']
             axF1.scatter(TP.index, TP.values, c=['g'] * len(TP.values), s=point_size, zorder=2, label='TP')
-            FN = session_df[session_df['label'] != 0][session_df['pred'] == 0]['reconstruction_error']
+            FN = session_df[session_df['label'] != 0][session_df['pred'] == 0].sample(frac=sample)['reconstruction_error']
             axF1.scatter(FN.index, FN.values, c=[0.75] * len(FN.values), s=point_size, zorder=3, label='FN')
-            FP = session_df[session_df['label'] != 1][session_df['pred'] == 1]['reconstruction_error']
+            FP = session_df[session_df['label'] != 1][session_df['pred'] == 1].sample(frac=sample)['reconstruction_error']
             axF1.scatter(FP.index, FP.values, c=['r'] * len(FP.values), s=point_size, zorder=4, label='FP')
 
-            plt.plot([self.threshold] * len(error_df.index), linestyle='dashed', label='Grenzwert')
+            plt.plot([0,len(error_df) * sample],[self.threshold] * 2, linestyle='dashed', label='Grenzwert')
             plt.yscale('log')
             plt.ylabel('MSE')
             plt.legend()
@@ -237,20 +243,24 @@ class AutoencoderCascade(nn.Module):
         point_size = 6
         # axF1.scatter(error_df.index, error_df.values, c=colors, s=sizes)
         TN = error_df[error_df['label'] == 0][error_df['pred'] == 0]['reconstruction_error']
+        TN_len = len(TN)
         if sample != 1:
-            TN = TN.sample(int(len(TN)*sample))
+            TN = TN.sample(frac=sample)
         axF1.scatter(TN.index, TN.values, c=['b']*len(TN.values), s=point_size, zorder=1, label='TN')
         TP = error_df[error_df['label'] == 1][error_df['pred'] == 1]['reconstruction_error']
+        TP_len = len(TP)
         if sample != 1:
-            TP = TP.sample(int(len(TP)*sample))
+            TP = TP.sample(frac=sample)
         axF1.scatter(TP.index, TP.values, c=['g']*len(TP.values), s=point_size, zorder=2, label='TP')
         FN = error_df[error_df['label'] != 0][error_df['pred'] == 0]['reconstruction_error']
+        FN_len = len(FN)
         if sample != 1:
-            FN = FN.sample(int(len(FN)*sample))
+            FN = FN.sample(frac=sample)
         axF1.scatter(FN.index, FN.values, c=[0.75]*len(FN.values), s=point_size, zorder=3, label='FN')
         FP = error_df[error_df['label'] != 1][error_df['pred'] == 1]['reconstruction_error']
+        FP_len = len(FP)
         if sample != 1:
-            FP = FP.sample(int(len(FP)*sample))
+            FP = FP.sample(frac=sample)
         axF1.scatter(FP.index, FP.values, c=['r']*len(FP.values), s=point_size, zorder=4, label='FP')
 
         plt.plot([self.threshold] * len(error_df.index), linestyle='dashed', label='Grenzwert')
@@ -266,11 +276,11 @@ class AutoencoderCascade(nn.Module):
 #TP=1545 FP=635 FN=138 TN=54611, total=16838
         precision, recall, f1 = metrics(y_pred, y_true)
         print('Precision: {:.3f}, recall: {:.3f}, F1-measure: {:.3f}\n'.format(precision, recall, f1))
-        TP = len(TP)
-        FP = len(FP)
+        TP = TP_len
+        FP = FP_len
         total = sum(y_true)
-        TN = len(TN)
-        FN = len(FN)
+        TN = TN_len
+        FN = FN_len
         print(f'{TP=} {FP=} {FN=} {TN=}, {total=}')
 
         return precision, recall, f1

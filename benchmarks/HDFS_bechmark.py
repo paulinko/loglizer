@@ -14,24 +14,25 @@ run_models = ['AutoencoderCascade']
 
 struct_log = '../data/HDFS/HDFS.npz' # The benchmark dataset
 
-EPOCHS = 30
-PERCENTILE = 0.994
+EPOCHS = 100
+PERCENTILE = 0.996
 decay=1e-4
 lr=1e-3
 
-window_size = 10
-run_models = ['AutoencoderLSTM']
+window_size = 0
+# run_models = ['AutoencoderLSTM']
 
 train_time=0
 frac_train = 0.01
 randomize = False
+zero_positive = True
 
 if __name__ == '__main__':
     if window_size == 0:
         (x_tr, y_train), (x_te, y_test) = dataloader.load_HDFS(struct_log,
                                                                window='session',
                                                                train_ratio=frac_train,
-                                                               zero_positive=True,
+                                                               zero_positive=zero_positive,
                                                                split_type='uniform',
                                                                randomize=randomize)
     else:
@@ -40,7 +41,7 @@ if __name__ == '__main__':
                                                                           train_ratio=frac_train,
                                                                           randomize=randomize,
                                                                           split_type='uniform',
-                                                                          zero_positive=True)
+                                                                          zero_positive=zero_positive)
 
     benchmark_results = []
     ts = time.time()
@@ -74,7 +75,7 @@ if __name__ == '__main__':
             feature_extractor = preprocessing.FeatureExtractor()
             x_train = feature_extractor.fit_transform(x_tr, term_weighting=None,
                                               normalization='zero-mean')
-            bottleneck_size = int(x_train.shape[1] // 1.5)
+            bottleneck_size = int(x_train.shape[1] // 1.2)
             encoder_sizer = x_train.shape[1] * 5
             model = AutoencoderCascade(input_size=x_train.shape[1],
                                 bottleneck_size=bottleneck_size,
@@ -84,7 +85,8 @@ if __name__ == '__main__':
                                 decay=decay,
                                 cmap='coolwarm'
                                 )
-            model.fit(x_train, epochs=EPOCHS, anim_dir='/home/pauline/Documents/git/loglizer/anim')
+            # model.fit(x_train, epochs=EPOCHS, anim_dir='/home/pauline/Documents/git/loglizer/anim')
+            model.fit(x_train, epochs=EPOCHS)
             evaluation_file = True
 
         elif _model == 'AutoencoderLSTM':
@@ -108,7 +110,7 @@ if __name__ == '__main__':
         elif _model == 'InvariantsMiner':
             feature_extractor = preprocessing.FeatureExtractor()
             x_train = feature_extractor.fit_transform(x_tr)
-            model = InvariantsMiner(epsilon=0.5, percentage=0.99)
+            model = InvariantsMiner(epsilon=0.5)
             train_start = time.time()
             model.fit(x_train)
             train_time  = time.time() - train_start
@@ -153,7 +155,7 @@ if __name__ == '__main__':
 
         evaluation_start = time.time()
         if evaluation_file:
-            precision, recall, f1 = model.evaluate(x_test, y_test, file_name=f'{ts}_{_model}_benchmark_eval_result.png',sample=0.1)
+            precision, recall, f1 = model.evaluate(x_test, y_test, file_name=f'{ts}_{_model}_benchmark_eval_result.png',sample=0.005)
         else:
             precision, recall, f1 = model.evaluate(x_test, y_test)
         evaluation_time = time.time() - evaluation_start
@@ -165,5 +167,5 @@ if __name__ == '__main__':
       .to_csv(f'{ts}_benchmark_result.csv', index=False)
 
     with open(f'{ts}_benchmark_result.csv', 'a') as result_file:
-        result_file.write(f'{lr=}, {decay=}, {PERCENTILE=}, {frac_train} {train_time=} {randomize=} {evaluation_time=} {train_time=}')
+        result_file.write(f'{lr=}, {decay=}, {PERCENTILE=}, {frac_train} {train_time=} {randomize=} {evaluation_time=} {train_time=} {zero_positive=} {EPOCHS=}')
         result_file.write(str(model))

@@ -27,16 +27,20 @@ if struct_log.endswith('.npz'):
 
 
 window_size = 10
-generate = True
-MODEL_PATH = 'log_autoencoderlstm'
-EPOCHS = 50
-PERCENTILE = 0.99
-load = False and not generate
+generate = False
+MODEL_PATH = 'log_autoencoderlstm_oh'
+EPOCHS = 30
+PERCENTILE = 0.9
+load = True and not generate
 load_threshold = False
-decay=1e-3
-lr=1e-2
-ratio = 0.05
-dropout = 0.2
+decay=1e-7
+lr=1e-3
+num_layers = 1
+
+ratio = 0.02
+dropout = 0.0
+batch_size = 64
+
 
 if __name__ == '__main__':
     if generate:
@@ -57,15 +61,20 @@ if __name__ == '__main__':
     feature_extractor = preprocessing.Vectorizer()
     unique_events = np.unique(np.concatenate(x_train['EventSequence']))
     train_dataset = feature_extractor.fit_transform(x_train, pandas.Series([], dtype=pandas.Float64Dtype), y_train,
-                                                    normalize=True)
+                                                    normalize=False)
     x_train, y_train = train_dataset['x'], train_dataset['y']
     test_dataset = feature_extractor.transform(x_test, pandas.Series([], dtype=pandas.Float64Dtype), y_test)
     x_test, y_test = test_dataset['x'], test_dataset['y']
 
-    bottleneck_size = int(x_test.shape[1] // 2)
-    encoder_sizer = x_test.shape[1]
+    bottleneck_size =  int(x_test.shape[2] * 6)
+    # bottleneck_size = int(x_test.shape[2] // 1.5)
+    # bottleneck_size = int(x_test[0].size[1] // 2)
+    encoder_sizer = 128
+    # encoder_sizer = x_test[0].size()[1]
     model_name = f'{MODEL_PATH}_ws{window_size}_epoch{EPOCHS}{typ}_ratio{ratio}'
-    model = AutoencoderLSTM(batch_size=x_test.shape[1],
+    model = AutoencoderLSTM(
+                        input_size=x_test.shape[2],
+                        seq_size=x_test.shape[1],
                         bottleneck_size=bottleneck_size,
                         encoder_size=encoder_sizer,
                         learning_rate=lr,
@@ -73,7 +82,8 @@ if __name__ == '__main__':
                         percentile=PERCENTILE,
                         num_directions=1,
                         dropout=dropout,
-                        model_name=model_name
+                        model_name=model_name,
+                        num_layers= num_layers
                         )
     print(model)
 
@@ -89,19 +99,19 @@ if __name__ == '__main__':
 
         train_time = 0
     else:
-        file_name = f'train_{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_dr{dropout}_lr{lr}{typ}_ratio{ratio}'
+        file_name = f'train_{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_dr{dropout}_lr{lr}{typ}_ratio{ratio}_nlayers{num_layers}_bs{batch_size}'
         file_name = os.path.join('results', file_name)
         start_train = time.time()
-        threshold = model.fit(x_train, epochs=EPOCHS, file_name=file_name)
+        threshold = model.fit(x_train, epochs=EPOCHS, file_name=file_name, batch_size=batch_size)
         train_time = time.time() - start_train
         with open(model_name + '.meta', 'wb') as pickle_file:
             pickle.dump({'threshold': threshold}, pickle_file)
 
     print('Test validation:')
-    file_name = f'validation{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_dr{dropout}_lr{lr}{typ}_ratio{ratio}'
+    file_name = f'validation{MODEL_PATH}_ws{window_size}_ep{EPOCHS}_pct{PERCENTILE}_bn{bottleneck_size}_ec{encoder_sizer}_d{decay}_dr{dropout}_lr{lr}{typ}_ratio{ratio}_nlayers{num_layers}_bs{batch_size}'
     file_name = os.path.join('results', file_name)
     start_eval = time.time()
-    precision, recall, f1 = model.evaluate(x_test, y_test, file_name + '.png', test_dataset['SessionId'], sample=0.1)
+    precision, recall, f1 = model.evaluate(x_test, y_test, file_name + '.png', test_dataset['SessionId'], sample=0.1, batch_size=batch_size)
     eval_time = time.time() -start_eval
     with open(file_name + '.txt', 'w') as result_file:
         result_file.write(f'{precision=}, {recall=}, {f1=}')

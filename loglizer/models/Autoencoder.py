@@ -11,6 +11,7 @@ import pandas as pd
 import torch.optim
 import tqdm
 import matplotlib.pyplot as plt
+from torch.utils.data import TensorDataset, DataLoader
 
 from ..utils import metrics
 from ..visualize import display_sessions
@@ -122,15 +123,17 @@ class Autoencoder(nn.Module):
 
 
 
-    def fit(self, train_loader, epochs=10, file_name=None):
+    def fit(self, train_loader, epochs=10, file_name=None, batch_size=2048):
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.decay, amsgrad=True)
         progressbar = tqdm.tqdm(range(epochs), total=epochs)
+        dataset = TensorDataset(torch.tensor(train_loader, dtype=torch.double))
+        dataloader = DataLoader(dataset, batch_size=batch_size, pin_memory=True)
         for epoch in progressbar:
             epoch_loss = 0
             batch_cnt = 0
-            for X in train_loader:
-                x_tensor = torch.from_numpy(X).double().to(self.device)
+            for step, (X) in enumerate(dataloader):
+                x_tensor = X[0]
                 predicted = self.forward(x_tensor)
                 loss = criterion(predicted, x_tensor)
                 optimizer.zero_grad()
@@ -183,16 +186,16 @@ class Autoencoder(nn.Module):
             axF1.set_title('Validation Session MSEs')
             point_size = 6
             # axF1.scatter(error_df.index, error_df.values, c=colors, s=sizes)
-            TN = session_df[session_df['label'] == 0][session_df['pred'] == 0]['reconstruction_error']
+            TN = session_df[session_df['label'] == 0][session_df['pred'] == 0].sample(frac=sample)['reconstruction_error']
             axF1.scatter(TN.index, TN.values, c=['b'] * len(TN.values), s=point_size, zorder=1, label='TN')
-            TP = session_df[session_df['label'] == 1][session_df['pred'] == 1]['reconstruction_error']
+            TP = session_df[session_df['label'] == 1][session_df['pred'] == 1].sample(frac=sample)['reconstruction_error']
             axF1.scatter(TP.index, TP.values, c=['g'] * len(TP.values), s=point_size, zorder=2, label='TP')
-            FN = session_df[session_df['label'] != 0][session_df['pred'] == 0]['reconstruction_error']
+            FN = session_df[session_df['label'] != 0][session_df['pred'] == 0].sample(frac=sample)['reconstruction_error']
             axF1.scatter(FN.index, FN.values, c=[0.75] * len(FN.values), s=point_size, zorder=3, label='FN')
-            FP = session_df[session_df['label'] != 1][session_df['pred'] == 1]['reconstruction_error']
+            FP = session_df[session_df['label'] != 1][session_df['pred'] == 1].sample(frac=sample)['reconstruction_error']
             axF1.scatter(FP.index, FP.values, c=['r'] * len(FP.values), s=point_size, zorder=4, label='FP')
 
-            plt.plot([self.threshold] * len(error_df.index), linestyle='dashed', label='Grenzwert')
+            plt.plot([self.threshold] * len(TN.index), linestyle='dashed', label='Grenzwert')
             plt.yscale('log')
             plt.ylabel('MSE')
             plt.legend()
